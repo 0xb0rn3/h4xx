@@ -38,7 +38,7 @@ apt-get update || handle_error "Failed to update package lists"
 
 # Install kernel headers
 echo "Installing kernel headers..."
-apt-get install -y linux-headers-$(uname -r) || handle_error "Failed to install kernel headers"
+apt-get install -y iptables* linux-headers-$(uname -r) || handle_error "Failed to install kernel headers"
 
 # Array of Kali Linux category metapackages
 declare -a categories=(
@@ -89,3 +89,15 @@ EOF
 
 echo "Installation complete! Check /root/kali_categories_installed.txt for details."
 echo "WARNING: These tools should only be used on systems you own or have explicit permission to test."
+clear
+echo "Setting up 3RD PARTY Anon Surf"
+git clone https://github.com/Und3rf10w/kali-anonsurf.git > /dev/null 2>&1
+cd kali-anonsurf
+clear
+./installer.sh > /dev/null 2>&1
+echo "You are now good to go! Run anonsurf with the following options"
+anonsurf -h
+sleep 5
+clear
+echo "To use anonsurf just run command anonsurf -h to get usage help"
+clear
