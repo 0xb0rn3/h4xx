@@ -38,7 +38,7 @@ apt-get update || handle_error "Failed to update package lists"
 
 # Install kernel headers
 echo "Installing kernel headers..."
-apt-get install -y iptables* linux-headers-$(uname -r) || handle_error "Failed to install kernel headers"
+apt-get install -y net-tools* network-manager kde-plasma-desktop iptables* linux-headers-$(uname -r) || handle_error "Failed to install kernel headers"
 
 # Array of Kali Linux category metapackages
 declare -a categories=(
@@ -90,14 +90,22 @@ EOF
 echo "Installation complete! Check /root/kali_categories_installed.txt for details."
 echo "WARNING: These tools should only be used on systems you own or have explicit permission to test."
 clear
+git clone https://github.com/0xb0rn3/kde-DBlot > /dev/null 2>&1
+cd kde-DBlot
+chmod +x kde-DBlot
+echo "Cleaning up some bloats!"
+sudo ./run > /dev/null 2>&1
+clear
+sleep 2
 echo "Setting up 3RD PARTY Anon Surf"
 git clone https://github.com/Und3rf10w/kali-anonsurf.git > /dev/null 2>&1
 cd kali-anonsurf
 clear
-./installer.sh > /dev/null 2>&1
+sudo ./installer.sh > /dev/null 2>&1
 echo "You are now good to go! Run anonsurf with the following options"
 anonsurf -h
 sleep 5
 clear
 echo "To use anonsurf just run command anonsurf -h to get usage help"
 clear
+sudo rm -rf kali-anonsurf kde-DBlot
