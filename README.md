@@ -149,7 +149,7 @@ Contributions are welcome! Please follow these steps:
 
 Special thanks to:
 - The Kali Linux team for their comprehensive security tools
-- The AnonSurf project by https://github.com/Und3rf10w @Und3rf10w
+- The AnonSurf project by https://github.com/Und3rf10w/kali-anonsurf
 - The KDE Plasma desktop environment team
 - All contributors to the included security tools
 
