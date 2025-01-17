@@ -90,14 +90,16 @@ EOF
 echo "Installation complete! Check /root/kali_categories_installed.txt for details."
 echo "WARNING: These tools should only be used on systems you own or have explicit permission to test."
 clear
+cd
 git clone https://github.com/0xb0rn3/kde-DBlot > /dev/null 2>&1
 cd kde-DBlot
-chmod +x kde-DBlot
+chmod +x run
 echo "Cleaning up some bloats!"
 sudo ./run > /dev/null 2>&1
 clear
-sleep 2
+cd
 echo "Setting up 3RD PARTY Anon Surf"
+sleep 2
 git clone https://github.com/Und3rf10w/kali-anonsurf.git > /dev/null 2>&1
 cd kali-anonsurf
 clear
