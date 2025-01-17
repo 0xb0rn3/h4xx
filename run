@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # H4xx - Kali Linux Security Tools Installation Suite
-# Version: 0.1-ALFA
+# Version: 0.1-BETA
 # Author: 0xb0rn3
 # GitHub: https://github.com/0xb0rn3
 # Purpose: Automated installation and configuration of Kali Linux security tools
@@ -9,11 +9,14 @@
 
 # Enable strict error handling for better security
 set -euo pipefail
+IFS=$'\n\t'  # Improved field separator to handle spaces in paths
 
-# Configuration variables
-BACKUP_DIR="/root/kali_install_backups"
-LOG_FILE="/root/kali_install.log"
+# Configuration variables with proper quoting
+BACKUP_DIR="${HOME}/kali_install_backups"
+LOG_FILE="${HOME}/kali_install.log"
 MENU_PACKAGE="kali-menu"
+TEMP_DIR="$(mktemp -d)"
+LOCK_FILE="/var/lock/h4xx.lock"
 
 # Define color codes for visual formatting
 GREEN='\033[0;32m'
@@ -23,13 +26,40 @@ BLUE='\033[0;34m'
 NC='\033[0m'    # No Color
 BOLD='\033[1m'
 
-# Progress animation characters for visual feedback
+# Progress animation characters
 SPINNER="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
-# Display the tool's banner and information
+# Cleanup function to handle script termination
+cleanup() {
+    local exit_code=$?
+    # Remove temporary files and lock file
+    [ -d "${TEMP_DIR}" ] && rm -rf "${TEMP_DIR}"
+    [ -f "${LOCK_FILE}" ] && rm -f "${LOCK_FILE}"
+    # Restore terminal
+    tput cnorm  # Show cursor
+    exit ${exit_code}
+}
+
+# Set up cleanup trap for script exit
+trap cleanup EXIT
+trap 'exit 1' INT TERM
+
+# Ensure single instance running
+ensure_single_instance() {
+    if [ -f "${LOCK_FILE}" ]; then
+        pid=$(cat "${LOCK_FILE}")
+        if kill -0 "${pid}" 2>/dev/null; then
+            error "Another instance is running (PID: ${pid})"
+            exit 1
+        fi
+    fi
+    echo $$ > "${LOCK_FILE}"
+}
+
+# Enhanced display banner with proper EOF handling
 display_banner() {
     clear_screen
-    echo -e "${BLUE}"
+    printf "%b" "${BLUE}"
     cat << "EOF"
 ██╗  ██╗██╗  ██╗██╗  ██╗██╗  ██╗
 ██║  ██║██║  ██║╚██╗██╔╝╚██╗██╔╝
@@ -38,71 +68,74 @@ display_banner() {
 ██║  ██║   ██║██╔╝ ██╗██╔╝ ██╗
 ╚═╝  ╚═╝   ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝
 EOF
-    echo -e "${NC}"
-    echo -e "${YELLOW}=== Kali Linux Tools Installation Suite ===${NC}"
-    echo -e "${BLUE}Version${NC}: ${GREEN}0.1-ALFA${NC}"
-    echo -e "${BLUE}Author${NC}: ${GREEN}0xb0rn3${NC}"
-    echo -e "${BLUE}GitHub${NC}: ${GREEN}https://github.com/0xb0rn3${NC}"
-    echo -e "${BLUE}Tool Name${NC}: ${GREEN}H4xx${NC}"
-    echo -e "\n${YELLOW}====================================${NC}\n"
+    printf "%b" "${NC}\n"
+    printf "%b" "${YELLOW}=== Kali Linux Tools Installation Suite ===${NC}\n"
+    printf "%b" "${BLUE}Version${NC}: ${GREEN}0.1-BETA${NC}\n"
+    printf "%b" "${BLUE}Author${NC}: ${GREEN}0xb0rn3${NC}\n"
+    printf "%b" "${BLUE}GitHub${NC}: ${GREEN}https://github.com/0xb0rn3${NC}\n"
+    printf "%b" "${BLUE}Tool Name${NC}: ${GREEN}H4xx${NC}\n"
+    printf "%b" "\n${YELLOW}====================================${NC}\n\n"
 }
 
-# Progress spinner animation for long-running tasks
+# Improved spinner with proper subprocess handling
 show_spinner() {
     local pid=$1
     local message=$2
     local i=0
     local delay=0.1
     
-    while kill -0 $pid 2>/dev/null; do
+    tput civis  # Hide cursor
+    while ps -p "${pid}" > /dev/null 2>&1; do
         i=$(( (i + 1) % ${#SPINNER} ))
-        printf "\r${BLUE}${SPINNER:$i:1}${NC} %s" "$message"
-        sleep $delay
+        printf "\r%b%s%b %s" "${BLUE}" "${SPINNER:$i:1}" "${NC}" "${message}"
+        sleep "${delay}"
     done
-    wait $pid
+    wait "${pid}" || true
     local exit_code=$?
     
-    if [ $exit_code -eq 0 ]; then
-        printf "\r${GREEN}✓${NC} %s\n" "$message"
+    if [ ${exit_code} -eq 0 ]; then
+        printf "\r%b✓%b %s\n" "${GREEN}" "${NC}" "${message}"
     else
-        printf "\r${RED}✗${NC} %s\n" "$message"
-        return $exit_code
+        printf "\r%b✗%b %s\n" "${RED}" "${NC}" "${message}"
+        return ${exit_code}
     fi
+    tput cnorm  # Show cursor
 }
 
-# Status message functions
-success() { echo -e "${GREEN}✓${NC} $1"; }
-error() { echo -e "${RED}✗${NC} $1"; }
-info() { echo -e "${BLUE}ℹ${NC} $1"; }
-warn() { echo -e "${YELLOW}⚠${NC} $1"; }
+# Status message functions with proper quoting
+success() { printf "%b✓%b %s\n" "${GREEN}" "${NC}" "$1"; }
+error() { printf "%b✗%b %s\n" "${RED}" "${NC}" "$1" >&2; }
+info() { printf "%b%bℹ%b %s\n" "${BLUE}" "${BOLD}" "${NC}" "$1"; }
+warn() { printf "%b⚠%b %s\n" "${YELLOW}" "${NC}" "$1"; }
 
-# Repository existence checker
+# Enhanced repository checker with timeout
 check_repo_exists() {
     local repo_url=$1
     local repo_name=$2
+    local timeout=30
     
-    if [ -d "$repo_name" ]; then
-        info "Repository $repo_name already exists. Updating..."
-        (cd "$repo_name" && git pull) &
-        show_spinner $! "Updating $repo_name"
+    if [ -d "${repo_name}" ]; then
+        info "Repository ${repo_name} already exists. Updating..."
+        (cd "${repo_name}" && timeout "${timeout}" git pull) &
+        show_spinner $! "Updating ${repo_name}"
         return 0
     fi
     return 1
 }
 
-# Logging function with version information
+# Improved logging with proper file handling
 log() {
     local timestamp
     timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-    echo "[H4xx v0.1-ALFA][$timestamp] $1" >> "$LOG_FILE"
+    printf "[H4xx v0.1-BETA][%s] %s\n" "${timestamp}" "$1" >> "${LOG_FILE}"
 }
 
-# Enhanced error handling
+# Enhanced error handling with proper variable expansion
 handle_error() {
     local error_msg="$1"
     local line_num="${2:-unknown}"
-    error "$error_msg (Line: $line_num)"
-    log "ERROR: $error_msg (Line: $line_num)"
+    error "${error_msg} (Line: ${line_num})"
+    log "ERROR: ${error_msg} (Line: ${line_num})"
     
     if [ -f "${BACKUP_DIR}/sources.list" ]; then
         warn "Attempting to restore original sources.list..."
@@ -113,67 +146,70 @@ handle_error() {
     exit 1
 }
 
-# Set up error trap
-trap 'handle_error "An unexpected error occurred" $LINENO' ERR
+# Set up error trap with line number tracking
+trap 'handle_error "An unexpected error occurred" ${LINENO}' ERR
 
-# Clear screen with banner
+# Improved screen clearing
 clear_screen() {
-    echo -e "\033[2J\033[H"
+    printf "\033[2J\033[H"
     display_banner
 }
 
-# Perform initial security checks
+# Enhanced security checks with proper error handling
 security_checks() {
     info "Performing security checks..."
     
-    # Root privilege check
-    if [ "$EUID" -ne 0 ]; then 
-        handle_error "Please run as root" "$LINENO"
+    if [ "${EUID}" -ne 0 ]; then 
+        handle_error "Please run as root" "${LINENO}"
     fi
     success "Root privileges verified"
 
-    # System compatibility check
     if [ ! -f "/etc/debian_version" ]; then
-        handle_error "This script is for Debian-based systems only" "$LINENO"
+        handle_error "This script is for Debian-based systems only" "${LINENO}"
     fi
     success "Debian-based system verified"
 
-    # Disk space check
     local available_space
     available_space=$(df -BG / | awk 'NR==2 {print $4}' | sed 's/G//')
-    if [ "$available_space" -lt 20 ]; then
-        handle_error "Insufficient disk space. At least 20GB required" "$LINENO"
+    if [ "${available_space}" -lt 20 ]; then
+        handle_error "Insufficient disk space. At least 20GB required" "${LINENO}"
     fi
     success "Sufficient disk space verified (${available_space}GB available)"
 }
 
-# Create backup of system configuration
+# Improved backup creation with error checking
 setup_backup() {
     info "Setting up backup directory..."
     (
-        mkdir -p "$BACKUP_DIR"
-        cp /etc/apt/sources.list "${BACKUP_DIR}/sources.list"
+        mkdir -p "${BACKUP_DIR}"
+        if [ -f /etc/apt/sources.list ]; then
+            cp /etc/apt/sources.list "${BACKUP_DIR}/sources.list"
+        else
+            error "sources.list not found"
+            return 1
+        fi
     ) &
     show_spinner $! "Creating backup of system configuration"
     log "Created backup of sources.list at ${BACKUP_DIR}/sources.list"
 }
 
-# Configure Kali repository
+# Enhanced repository configuration with proper checks
 add_kali_repo() {
     info "Configuring Kali repository..."
     
-    if grep -q "kali-rolling" /etc/apt/sources.list; then
+    if grep -q "kali-rolling" /etc/apt/sources.list 2>/dev/null; then
         success "Kali repository already configured"
         return 0
     fi
     
-    (echo "deb http://http.kali.org/kali kali-rolling main contrib non-free non-free-firmware" >> /etc/apt/sources.list) &
+    (printf "deb http://http.kali.org/kali kali-rolling main contrib non-free non-free-firmware\n" >> /etc/apt/sources.list) &
     show_spinner $! "Adding Kali repository"
     
     info "Importing Kali GPG key..."
-    if ! apt-key list | grep -q "Kali Linux Repository"; then
+    if ! apt-key list 2>/dev/null | grep -q "Kali Linux Repository"; then
         (
-            wget -q -O - https://archive.kali.org/archive-key.asc | gpg --import - &&
+            wget -q -O "${TEMP_DIR}/archive-key.asc" https://archive.kali.org/archive-key.asc &&
+            gpg --import "${TEMP_DIR}/archive-key.asc" &&
             gpg --export 44C6513A8E4FB3D30875F758ED444FF07D8D0BF6 | apt-key add -
         ) &
         show_spinner $! "Importing and verifying GPG key"
@@ -183,7 +219,7 @@ add_kali_repo() {
     fi
 }
 
-# Define available tool categories
+# Define tool categories with proper array declaration
 declare -A categories=(
     ["kali-tools-information-gathering"]="Network scanning and enumeration tools"
     ["kali-tools-vulnerability"]="Vulnerability assessment tools"
@@ -203,72 +239,88 @@ declare -A categories=(
     ["kali-tools-fuzzing"]="Fuzzing tools"
 )
 
-# Install required base packages
+# Improved base package installation with error handling
 install_base_requirements() {
     info "Installing base requirements..."
     (
-        DEBIAN_FRONTEND=noninteractive apt-get update
-        DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update
+        apt-get install -y \
             net-tools \
             network-manager \
             kde-plasma-desktop \
             iptables \
             "linux-headers-$(uname -r)" \
-            "$MENU_PACKAGE"
+            "${MENU_PACKAGE}"
     ) &
     show_spinner $! "Installing base system requirements"
 }
 
-# Install Kali tool categories
+# Enhanced category installation with progress tracking
 install_categories() {
     info "Installing Kali tool categories..."
+    local total=${#categories[@]}
+    local current=0
+    
     for category in "${!categories[@]}"; do
-        info "Installing: ${category} - ${categories[$category]}"
-        (DEBIAN_FRONTEND=noninteractive apt-get install -y "$category") &
+        current=$((current + 1))
+        info "[${current}/${total}] Installing: ${category} - ${categories[$category]}"
+        (DEBIAN_FRONTEND=noninteractive apt-get install -y "${category}") &
         show_spinner $! "Installing ${category}"
     done
 }
 
-# Set up additional components
+# Improved additional repository handling
 handle_additional_repos() {
     info "Setting up additional components..."
+    local current_dir
+    current_dir=$(pwd)
     
-    # KDE Debloat installation
+    cd "${TEMP_DIR}" || handle_error "Failed to enter temporary directory" "${LINENO}"
+    
     if ! check_repo_exists "https://github.com/0xb0rn3/kde-DBlot" "kde-DBlot"; then
         (git clone https://github.com/0xb0rn3/kde-DBlot) &
         show_spinner $! "Cloning KDE Debloat repository"
     fi
     
-    (
-        cd kde-DBlot || handle_error "Failed to enter kde-DBlot directory" "$LINENO"
-        chmod +x run
-        ./run
-    ) &
-    show_spinner $! "Running KDE Debloat script"
+    if [ -d "kde-DBlot" ]; then
+        (
+            cd kde-DBlot || handle_error "Failed to enter kde-DBlot directory" "${LINENO}"
+            chmod +x run
+            ./run
+        ) &
+        show_spinner $! "Running KDE Debloat script"
+    fi
     
-    # AnonSurf installation
     if ! check_repo_exists "https://github.com/Und3rf10w/kali-anonsurf.git" "kali-anonsurf"; then
         (git clone https://github.com/Und3rf10w/kali-anonsurf.git) &
         show_spinner $! "Cloning AnonSurf repository"
     fi
     
-    (
-        cd kali-anonsurf || handle_error "Failed to enter kali-anonsurf directory" "$LINENO"
-        ./installer.sh
-    ) &
-    show_spinner $! "Installing AnonSurf"
+    if [ -d "kali-anonsurf" ]; then
+        (
+            cd kali-anonsurf || handle_error "Failed to enter kali-anonsurf directory" "${LINENO}"
+            chmod +x installer.sh
+            ./installer.sh
+        ) &
+        show_spinner $! "Installing AnonSurf"
+    fi
+    
+    cd "${current_dir}" || handle_error "Failed to return to original directory" "${LINENO}"
 }
 
-# Create installation documentation
+# Enhanced documentation creation with proper file handling
 create_documentation() {
     info "Creating installation documentation..."
+    local doc_file="/root/kali_installation_report.md"
+    
     (
-    cat > "/root/kali_installation_report.md" << EOF
+    cat > "${doc_file}" << EOF
 # H4xx - Kali Linux Tools Installation Report
 
 ## Tool Information
 - Name: H4xx
-- Version: 0.1-ALFA
+- Version: 0.1-BETA
 - Author: 0xb0rn3
 - GitHub: https://github.com/0xb0rn3
 
@@ -279,7 +331,7 @@ create_documentation() {
 
 ## Installed Categories
 $(for category in "${!categories[@]}"; do
-    echo "- **${category}**: ${categories[$category]}"
+    printf "- **%s**: %s\n" "${category}" "${categories[$category]}"
 done)
 
 ## Additional Components
@@ -303,8 +355,9 @@ EOF
     show_spinner $! "Creating installation report"
 }
 
-# Main execution function
+# Enhanced main execution function with proper error handling
 main() {
+    ensure_single_instance
     clear_screen
     info "Starting H4xx Kali tools installation..."
     
@@ -317,6 +370,7 @@ main() {
     
     info "Performing system cleanup..."
     (
+        export DEBIAN_FRONTEND=noninteractive
         apt-get autoremove -y
         apt-get clean
     ) &
@@ -327,7 +381,104 @@ main() {
     
     info "Installation report saved to /root/kali_installation_report.md"
     info "Use 'anonsurf -h' to view anonymity features"
+    
+    # Final system checks
+    verify_installation
 }
 
-# Execute main function
-main
+# Add verification function to ensure successful installation
+verify_installation() {
+    info "Performing final verification checks..."
+    local verification_errors=0
+    
+    # Verify critical directories and files
+    local check_paths=(
+        "${BACKUP_DIR}"
+        "${LOG_FILE}"
+        "/root/kali_installation_report.md"
+        "/etc/apt/sources.list"
+    )
+    
+    for path in "${check_paths[@]}"; do
+        if [ ! -e "${path}" ]; then
+            error "Missing required path: ${path}"
+            ((verification_errors++))
+        fi
+    done
+    
+    # Verify Kali repository configuration
+    if ! grep -q "kali-rolling" /etc/apt/sources.list; then
+        error "Kali repository not properly configured"
+        ((verification_errors++))
+    fi
+    
+    # Verify essential tool installations
+    local essential_packages=(
+        "net-tools"
+        "network-manager"
+        "kde-plasma-desktop"
+        "iptables"
+    )
+    
+    for package in "${essential_packages[@]}"; do
+        if ! dpkg -l | grep -q "^ii.*${package}"; then
+            error "Essential package not installed: ${package}"
+            ((verification_errors++))
+        fi
+    done
+    
+    # Verify AnonSurf installation
+    if ! command -v anonsurf >/dev/null 2>&1; then
+        warn "AnonSurf installation may not be complete"
+        # Don't increment errors as this is optional
+    fi
+    
+    # Check system stability
+    local load_average
+    load_average=$(cut -d ' ' -f1 /proc/loadavg)
+    if (( $(echo "${load_average} > 5" | bc -l) )); then
+        warn "System load is high: ${load_average}"
+    fi
+    
+    # Verify network connectivity
+    if ! ping -c 1 8.8.8.8 >/dev/null 2>&1; then
+        warn "Network connectivity check failed"
+    fi
+    
+    # Create final status report
+    if [ ${verification_errors} -eq 0 ]; then
+        success "All verification checks passed successfully"
+        log "Installation verified successfully"
+    else
+        warn "Verification completed with ${verification_errors} errors"
+        log "Installation verified with ${verification_errors} errors"
+    fi
+    
+    # Display final summary
+    cat << EOF
+
+${BLUE}=== Installation Summary ===${NC}
+• Installation Status: $([ ${verification_errors} -eq 0 ] && echo "${GREEN}Success${NC}" || echo "${RED}Completed with errors${NC}")
+• Log Location: ${LOG_FILE}
+• Documentation: /root/kali_installation_report.md
+• Backup Location: ${BACKUP_DIR}
+
+${YELLOW}Important Notes:${NC}
+1. Use 'anonsurf start' to enable anonymous browsing
+2. Check ${LOG_FILE} for detailed installation logs
+3. Review /root/kali_installation_report.md for full documentation
+
+${GREEN}Installation process completed${NC}
+EOF
+}
+
+# Execute main function with error handling
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    trap cleanup EXIT
+    trap 'error "Script interrupted"; exit 1' INT TERM
+    
+    main "$@" || {
+        error "Installation failed"
+        exit 1
+    }
+fi
